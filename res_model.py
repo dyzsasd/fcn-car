@@ -132,7 +132,7 @@ class BilinearUpSampling2D(Layer):
 
 def get_model(
     input_shape,
-    classes=2,
+    classes=1,
     weight_decay=1e-4
 ):
     img_input = Input(shape=input_shape)
@@ -207,7 +207,7 @@ def get_model(
         padding='valid', strides=(1, 1),
         kernel_regularizer=l2(weight_decay))(x)
 
-    x = BilinearUpSampling2D(size=(32, 32))(x)
+    x = BilinearUpSampling2D(size=(32, 32), target_size=(1280, 1918, 1))(x)
 
     model = Model(img_input, x)
 

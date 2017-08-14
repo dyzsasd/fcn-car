@@ -1,20 +1,26 @@
-from keras.preprocessing.image import ImageDataGenerator
+from keras.metrics import binary_accuracy
+from keras.optimizers import SGD
+from keras.preprocessing.image import img_to_array, load_img
 
 from res_model import get_model
-from utils import SegDataGenerator
+from utils import binary_crossentropy_with_logits
 
 
-path = "data/sample"
-
-datagen = ImageDataGenerator(
-    featurewise_center=True,
-    featurewise_std_normalization=True,
-    rotation_range=20,
-    width_shift_range=0.2,
-    height_shift_range=0.2,
-    horizontal_flip=True
+model = get_model((1280, 1918, 3))
+model.compile(
+    loss=binary_crossentropy_with_logits,
+    optimizer=SGD(lr=0.01 / 16, momentum=0.9),
+    metrics=[binary_accuracy]
 )
 
-weight_decay = 1e-4
+img_x = load_img('data/sample/fff9b3a5373f_16.jpg')
+img_y = load_img('data/sample/fff9b3a5373f_16_mask.gif')
 
-model = get_model((1918, 1280))
+x = img_to_array(img_x)
+x = x.reshape((1,) + x.shape)
+
+y = img_to_array(img_y)
+y = y.reshape((1,) + y.shape)
+y = y[:, :, :, :1]
+
+model.fit(x, y, batch_size=1, epochs=2)

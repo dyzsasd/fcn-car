@@ -4,7 +4,13 @@ from keras import backend as K
 from PIL import Image
 import numpy as np
 import os
-import cv2
+
+
+def binary_crossentropy_with_logits(ground_truth, predictions):
+    return K.mean(K.binary_crossentropy(ground_truth,
+                                        predictions,
+                                        from_logits=True),
+                  axis=-1)
 
 
 def center_crop(x, center_crop_size, data_format, **kwargs):
