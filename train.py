@@ -1,3 +1,7 @@
+import matplotlib
+
+matplotlib.use('agg')
+
 from keras.metrics import binary_accuracy
 from keras.optimizers import SGD
 from keras.preprocessing.image import img_to_array, load_img
