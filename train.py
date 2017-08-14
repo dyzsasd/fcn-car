@@ -2,12 +2,55 @@ import matplotlib
 
 matplotlib.use('agg')
 
+import fnmatch
+import os
+
 from keras.metrics import binary_accuracy
 from keras.optimizers import SGD
-from keras.preprocessing.image import img_to_array, load_img
+from keras.preprocessing.image import img_to_array, load_img, Iterator
+import numpy as np
 
 from res_model import get_model
 from utils import binary_crossentropy_with_logits
+
+
+class SegDirectoryIterator(Iterator):
+    train_path = '/data'
+    mask_path = '/data'
+
+    def __init__(self):
+        self.train_images = fnmatch.filter(
+            os.listdir(self.train_path), '*.jpg')
+        super(SegDirectoryIterator, self).__init__(
+            len(self.train_images), 1, True, None)
+
+    def next(self):
+        with self.lock:
+            index_array, current_index, current_batch_size = next(
+                self.index_generator)
+
+        # The transformation of images is not under thread lock so it can be
+        # done in parallel
+        batch_x = np.zeros((current_batch_size, ) + (1280, 1918, 3))
+        batch_y = np.zeros((current_batch_size, ) + (1280, 1918, 1))
+
+        for i, j in enumerate(index_array):
+            data_file = self.train_images[j]
+            img_x = load_img(os.path.join(self.train_path, data_file))
+            img_y = load_img(os.path.join(
+                self.mask_path, data_file.replace(".jpg", "_mask.gif")))
+
+            x = img_to_array(img_x)
+            y = img_to_array(img_y)
+            y = y[:, :, :1]
+
+            x = x / 255.
+            y = y / 255.
+
+            batch_x[i] = x
+            batch_y[i] = y
+
+        return batch_x
 
 
 model = get_model((1280, 1918, 3))
@@ -17,14 +60,4 @@ model.compile(
     metrics=[binary_accuracy]
 )
 
-img_x = load_img('data/sample/fff9b3a5373f_16.jpg')
-img_y = load_img('data/sample/fff9b3a5373f_16_mask.gif')
-
-x = img_to_array(img_x)
-x = x.reshape((1,) + x.shape)
-
-y = img_to_array(img_y)
-y = y.reshape((1,) + y.shape)
-y = y[:, :, :, :1]
-
-model.fit(x, y, batch_size=1, epochs=2)
+model.fit_generator(SegDirectoryIterator(), steps_per_epoch=1000, epochs=1)
