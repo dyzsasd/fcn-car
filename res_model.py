@@ -137,10 +137,12 @@ def get_model(
 ):
     img_input = Input(shape=input_shape)
 
+    x = AveragePooling2D()(img_input)
+
     # Block 1
     x = Conv2D(
         64, (3, 3), activation='relu', padding='same',
-        name='block1_conv1', kernel_regularizer=l2(weight_decay))(img_input)
+        name='block1_conv1', kernel_regularizer=l2(weight_decay))(x)
     x = Conv2D(
         64, (3, 3), activation='relu', padding='same',
         name='block1_conv2', kernel_regularizer=l2(weight_decay))(x)
@@ -207,7 +209,7 @@ def get_model(
         padding='valid', strides=(1, 1),
         kernel_regularizer=l2(weight_decay))(x)
 
-    x = BilinearUpSampling2D(size=(32, 32), target_size=(1280, 1918, 1))(x)
+    x = BilinearUpSampling2D(size=(32, 32), target_size=input_shape[:2] + (1, ))(x)
 
     model = Model(img_input, x)
 
