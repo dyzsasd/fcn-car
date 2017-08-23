@@ -32,9 +32,10 @@ class SegDirectoryIterator(Iterator):
             else:
                 self.validation_images.append(file)
 
-        self.validation_data = []
-        self.validation_mask_data = []
+        self.validation_data = np.zeros((len(self.validation_images), ) + (160, 240, 3))
+        self.validation_mask_data = np.zeros((len(self.validation_images), ) + (160, 240, 1))
 
+        count = 0
         for data_file in self.validation_images:
             img_x = load_img(os.path.join(self.train_path, data_file))
             img_y = load_img(os.path.join(
@@ -49,8 +50,9 @@ class SegDirectoryIterator(Iterator):
 
             x = x / 255.
             y = y / 255.
-            self.validation_data.append(x)
-            self.validation_mask_data.append(y)
+            self.validation_data[count] = x
+            self.validation_mask_data[count] = y
+            count += 1
 
         self.train_data = [None] * len(self.train_images)
         self.mask_data = [None] * len(self.train_images)
@@ -105,5 +107,5 @@ model.compile(
 
 # model.fit_generator(SegDirectoryIterator(), steps_per_epoch=1000, epochs=10)
 sdi = SegDirectoryIterator()
-model.fit_generator(sdi, steps_per_epoch=10, epochs=200, validation_data=[np.vstack(sdi.validation_data), np.vstack(sdi.validation_mask_data)])
+model.fit_generator(sdi, steps_per_epoch=10, epochs=200, validation_data=[sdi.validation_data, sdi.validation_mask_data])
 # model.fit(sdi.self.train_images_data, sdi.self.mask_images_data, batch_size=100, epochs=100)
