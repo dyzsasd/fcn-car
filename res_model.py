@@ -137,12 +137,10 @@ def get_model(
 ):
     img_input = Input(shape=input_shape)
 
-    x = AveragePooling2D()(img_input)
-
     # Block 1
     x = Conv2D(
         64, (3, 3), activation='relu', padding='same',
-        name='block1_conv1', kernel_regularizer=l2(weight_decay))(x)
+        name='block1_conv1', kernel_regularizer=l2(weight_decay))(img_input)
     x = Conv2D(
         64, (3, 3), activation='relu', padding='same',
         name='block1_conv2', kernel_regularizer=l2(weight_decay))(x)

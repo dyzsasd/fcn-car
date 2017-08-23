@@ -7,7 +7,7 @@ import os
 
 from keras.metrics import binary_accuracy
 from keras.optimizers import SGD
-from keras.preprocessing.image import img_to_array, load_img, Iterator
+from keras.preprocessing.image import resize_images, img_to_array, load_img, Iterator
 import numpy as np
 
 from res_model import get_model
@@ -39,6 +39,9 @@ class SegDirectoryIterator(Iterator):
             img_x = load_img(os.path.join(self.train_path, data_file))
             img_y = load_img(os.path.join(
                 self.mask_path, data_file.replace(".jpg", "_mask.gif")))
+
+            img_x = resize_images(img_x, (160, 240))
+            img_y = resize_images(img_y, (160, 240))
 
             x = img_to_array(img_x)
             y = img_to_array(img_y)
