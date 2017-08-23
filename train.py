@@ -27,7 +27,7 @@ class SegDirectoryIterator(Iterator):
         self.validation_images = []
 
         for file in files:
-            if random.random() > 0.01:
+            if random.random() > 0.1:
                 self.train_images.append(file)
             else:
                 self.validation_images.append(file)
@@ -105,5 +105,5 @@ model.compile(
 
 # model.fit_generator(SegDirectoryIterator(), steps_per_epoch=1000, epochs=10)
 sdi = SegDirectoryIterator()
-model.fit_generator(sdi, steps_per_epoch=10, epochs=200, validation_data=[sdi.validation_data, sdi.validation_mask_data])
+model.fit_generator(sdi, steps_per_epoch=10, epochs=200, validation_data=[np.vstack(sdi.validation_data), np.vstack(sdi.validation_mask_data)])
 # model.fit(sdi.self.train_images_data, sdi.self.mask_images_data, batch_size=100, epochs=100)
