@@ -21,6 +21,8 @@ class SegDirectoryIterator(Iterator):
     def __init__(self):
         self.train_images = fnmatch.filter(
             os.listdir(self.train_path), '*.jpg')
+        self.train_data = [None] * len(self.train_images)
+        self.mask_data = [None] * len(self.train_images)
         super(SegDirectoryIterator, self).__init__(
             len(self.train_images), 10, True, None)
 
@@ -35,6 +37,10 @@ class SegDirectoryIterator(Iterator):
         batch_y = np.zeros((current_batch_size, ) + (1280, 1918, 1))
 
         for i, j in enumerate(index_array):
+            if self.train_data[j] is not None:
+                batch_x[i] = self.train_data[j]
+                batch_y[i] = self.mask_data[j]
+                continue
             data_file = self.train_images[j]
             img_x = load_img(os.path.join(self.train_path, data_file))
             img_y = load_img(os.path.join(
@@ -49,6 +55,9 @@ class SegDirectoryIterator(Iterator):
 
             x = x / 255.
             y = y / 255.
+
+            self.train_data[j] = x
+            self.mask_data[j] = y
 
             batch_x[i] = x
             batch_y[i] = y
