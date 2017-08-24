@@ -10,224 +10,192 @@ import keras.backend as K
 import tensorflow as tf
 
 
-def resize_images_bilinear(X, height_factor=1, width_factor=1,
-                           target_height=None, target_width=None,
-                           data_format='default'):
-    '''Resizes the images contained in a 4D tensor of shape
-    - [batch, channels, height, width] (for 'channels_first' data_format)
-    - [batch, height, width, channels] (for 'channels_last' data_format)
-    by a factor of (height_factor, width_factor). Both factors should be
-    positive integers.
+def mvn(tensor):
+    '''Performs per-channel spatial mean-variance normalization.'''
+    epsilon = 1e-6
+    mean = K.mean(tensor, axis=(1, 2), keepdims=True)
+    std = K.std(tensor, axis=(1, 2), keepdims=True)
+    mvn = (tensor - mean) / (std + epsilon)
+
+    return mvn
+
+
+def crop(tensors):
     '''
-    if data_format == 'default':
-        data_format = K.image_data_format()
-    if data_format == 'channels_first':
-        original_shape = K.int_shape(X)
-        if target_height and target_width:
-            new_shape = tf.constant(
-                np.array((target_height, target_width)).astype('int32'))
-        else:
-            new_shape = tf.shape(X)[2:]
-            new_shape *= tf.constant(
-                np.array([height_factor, width_factor]).astype('int32'))
-        X = permute_dimensions(X, [0, 2, 3, 1])
-        X = tf.image.resize_bilinear(X, new_shape)
-        X = permute_dimensions(X, [0, 3, 1, 2])
-        if target_height and target_width:
-            X.set_shape((None, None, target_height, target_width))
-        else:
-            X.set_shape((
-                None, None,
-                original_shape[2] * height_factor,
-                original_shape[3] * width_factor
-            ))
-        return X
-    elif data_format == 'channels_last':
-        original_shape = K.int_shape(X)
-        if target_height and target_width:
-            new_shape = tf.constant(np.array((
-                target_height, target_width)).astype('int32'))
-        else:
-            new_shape = tf.shape(X)[1:3]
-            new_shape *= tf.constant(np.array(
-                [height_factor, width_factor]).astype('int32'))
-        X = tf.image.resize_bilinear(X, new_shape)
-        if target_height and target_width:
-            X.set_shape((None, target_height, target_width, None))
-        else:
-            X.set_shape((None, original_shape[1] * height_factor,
-                         original_shape[2] * width_factor, None))
-        return X
-    else:
-        raise Exception('Invalid data_format: ' + data_format)
+    List of 2 tensors, the second tensor having larger spatial dimensions.
+    '''
+    h_dims, w_dims = [], []
+    for t in tensors:
+        b, h, w, d = K.get_variable_shape(t)
+        h_dims.append(h)
+        w_dims.append(w)
+    crop_h, crop_w = (h_dims[1] - h_dims[0]), (w_dims[1] - w_dims[0])
+    rem_h = crop_h % 2
+    rem_w = crop_w % 2
+    crop_h_dims = (crop_h / 2, crop_h / 2 + rem_h)
+    crop_w_dims = (crop_w / 2, crop_w / 2 + rem_w)
+    cropped = Cropping2D(cropping=(crop_h_dims, crop_w_dims))(tensors[1])
+
+    return cropped
 
 
-class BilinearUpSampling2D(Layer):
-    def __init__(self, size=(1, 1), target_size=None,
-                 data_format='default', **kwargs):
-        if data_format == 'default':
-            data_format = K.image_data_format()
-        self.size = tuple(size)
-        if target_size is not None:
-            self.target_size = tuple(target_size)
-        else:
-            self.target_size = None
-        self.data_format = data_format
-        self.input_spec = [InputSpec(ndim=4)]
-        super(BilinearUpSampling2D, self).__init__(**kwargs)
+def dice_coef(y_true, y_pred, smooth=0.0):
+    '''Average dice coefficient per batch.'''
+    axes = (1, 2, 3)
+    intersection = K.sum(y_true * y_pred, axis=axes)
+    summation = K.sum(y_true, axis=axes) + K.sum(y_pred, axis=axes)
 
-    def compute_output_shape(self, input_shape):
-        if self.data_format == 'channels_first':
-            width = int(
-                self.size[0] * input_shape[2]
-                if input_shape[2] is not None else None
-            )
-            height = int(
-                self.size[1] * input_shape[3]
-                if input_shape[3] is not None else None
-            )
-            if self.target_size is not None:
-                width = self.target_size[0]
-                height = self.target_size[1]
-            return (input_shape[0],
-                    input_shape[1],
-                    width,
-                    height)
-        elif self.data_format == 'channels_last':
-            width = int(
-                self.size[0] * input_shape[1]
-                if input_shape[1] is not None else None
-            )
-            height = int(
-                self.size[1] * input_shape[2]
-                if input_shape[2] is not None else None
-            )
-            if self.target_size is not None:
-                width = self.target_size[0]
-                height = self.target_size[1]
-            return (input_shape[0],
-                    width,
-                    height,
-                    input_shape[3])
-        else:
-            raise Exception('Invalid data_format: ' + self.data_format)
+    return K.mean((2.0 * intersection + smooth) / (summation + smooth), axis=0)
 
-    def call(self, x, mask=None):
-        if self.target_size is not None:
-            return resize_images_bilinear(
-                x, target_height=self.target_size[0],
-                target_width=self.target_size[1], data_format=self.data_format
-            )
-        else:
-            return resize_images_bilinear(
-                x, height_factor=self.size[0],
-                width_factor=self.size[1], data_format=self.data_format
-            )
 
-    def get_config(self):
-        config = {'size': self.size, 'target_size': self.target_size}
-        base_config = super(BilinearUpSampling2D, self).get_config()
-        return dict(list(base_config.items()) + list(config.items()))
+def dice_coef_loss(y_true, y_pred):
+    return 1.0 - dice_coef(y_true, y_pred, smooth=10.0)
+
+
+def jaccard_coef(y_true, y_pred, smooth=0.0):
+    '''Average jaccard coefficient per batch.'''
+    axes = (1, 2, 3)
+    intersection = K.sum(y_true * y_pred, axis=axes)
+    union = K.sum(y_true, axis=axes) + K.sum(y_pred, axis=axes) - intersection
+    return K.mean((intersection + smooth) / (union + smooth), axis=0)
 
 
 def get_model(
     input_shape,
-    classes=1,
+    num_classes=1,
     weight_decay=1e-4
 ):
-    img_input = Input(shape=input_shape)
 
-    # Block 1
-    x = Conv2D(
-        64, (3, 3), activation='relu', padding='same',
-        name='block1_conv1', kernel_regularizer=l2(weight_decay))(img_input)
-    x = Conv2D(
-        64, (3, 3), activation='relu', padding='same',
-        name='block1_conv2', kernel_regularizer=l2(weight_decay))(x)
-    x = MaxPooling2D((2, 2), strides=(2, 2), name='block1_pool')(x)
+    if num_classes == 2:
+        num_classes = 1
+        loss = dice_coef_loss
+        activation = 'sigmoid'
+    else:
+        loss = 'categorical_crossentropy'
+        activation = 'softmax'
 
-    # Block 2
-    x = Conv2D(
-        128, (3, 3), activation='relu', padding='same',
-        name='block2_conv1', kernel_regularizer=l2(weight_decay))(x)
-    x = Conv2D(
-        128, (3, 3), activation='relu', padding='same',
-        name='block2_conv2', kernel_regularizer=l2(weight_decay))(x)
-    x = MaxPooling2D((2, 2), strides=(2, 2), name='block2_pool')(x)
+    kwargs = dict(
+        kernel_size=3,
+        strides=1,
+        activation='relu',
+        padding='same',
+        use_bias=True,
+        kernel_initializer='glorot_uniform',
+        bias_initializer='zeros',
+        bias_regularizer=None,
+        activity_regularizer=None,
+        kernel_constraint=None,
+        bias_constraint=None,
+        trainable=True,
+    )
 
-    # Block 3
-    x = Conv2D(
-        256, (3, 3), activation='relu', padding='same',
-        name='block3_conv1', kernel_regularizer=l2(weight_decay))(x)
-    x = Conv2D(
-        256, (3, 3), activation='relu', padding='same',
-        name='block3_conv2', kernel_regularizer=l2(weight_decay))(x)
-    x = Conv2D(
-        256, (3, 3), activation='relu', padding='same',
-        name='block3_conv3', kernel_regularizer=l2(weight_decay))(x)
-    x = MaxPooling2D((2, 2), strides=(2, 2), name='block3_pool')(x)
+    data = Input(shape=input_shape, dtype='float', name='data')
+    mvn0 = Lambda(mvn, name='mvn0')(data)
+    pad = ZeroPadding2D(padding=5, name='pad')(mvn0)
 
-    # Block 4
-    x = Conv2D(
-        512, (3, 3), activation='relu', padding='same',
-        name='block4_conv1', kernel_regularizer=l2(weight_decay))(x)
-    x = Conv2D(
-        512, (3, 3), activation='relu', padding='same',
-        name='block4_conv2', kernel_regularizer=l2(weight_decay))(x)
-    x = Conv2D(
-        512, (3, 3), activation='relu', padding='same',
-        name='block4_conv3', kernel_regularizer=l2(weight_decay))(x)
-    x = MaxPooling2D((2, 2), strides=(2, 2), name='block4_pool')(x)
+    conv1 = Conv2D(filters=64, name='conv1', **kwargs)(pad)
+    mvn1 = Lambda(mvn, name='mvn1')(conv1)
 
-    # Block 5
-    x = Conv2D(
-        1024, (3, 3), activation='relu', padding='same',
-        name='block5_conv1', kernel_regularizer=l2(weight_decay))(x)
-    x = Conv2D(
-        1024, (3, 3), activation='relu', padding='same',
-        name='block5_conv2', kernel_regularizer=l2(weight_decay))(x)
-    x = Conv2D(
-        1024, (3, 3), activation='relu', padding='same',
-        name='block5_conv3', kernel_regularizer=l2(weight_decay))(x)
-    x = MaxPooling2D((2, 2), strides=(2, 2), name='block5_pool')(x)
+    conv2 = Conv2D(filters=64, name='conv2', **kwargs)(mvn1)
+    mvn2 = Lambda(mvn, name='mvn2')(conv2)
 
-    # Convolutional layers transfered from fully-connected layers
-    x = Conv2D(
-        4096, (7, 7), activation='relu', padding='same',
-        name='fc1', kernel_regularizer=l2(weight_decay))(x)
-    x = Dropout(0.5)(x)
+    conv3 = Conv2D(filters=64, name='conv3', **kwargs)(mvn2)
+    mvn3 = Lambda(mvn, name='mvn3')(conv3)
+    pool1 = MaxPooling2D(
+        pool_size=3, strides=2,
+        padding='valid', name='pool1')(mvn3)
 
-    x = Conv2D(
-        classes, (1, 1), activation='relu', padding='same',
-        kernel_regularizer=l2(weight_decay))(x)
-    x = Conv2DTranspose(
-        classes, 2, kernel_initializer='glorot_uniform', activation='relu')(x)
+    conv4 = Conv2D(filters=128, name='conv4', **kwargs)(pool1)
+    mvn4 = Lambda(mvn, name='mvn4')(conv4)
 
-    x = Conv2D(
-        classes, (1, 1), activation='relu', padding='same',
-        kernel_regularizer=l2(weight_decay))(x)
-    x = Conv2DTranspose(
-        classes, 2, kernel_initializer='glorot_uniform', activation='relu')(x)
+    conv5 = Conv2D(filters=128, name='conv5', **kwargs)(mvn4)
+    mvn5 = Lambda(mvn, name='mvn5')(conv5)
 
-    x = Conv2D(
-        classes, (1, 1), activation='relu', padding='same',
-        kernel_regularizer=l2(weight_decay))(x)
-    x = Conv2DTranspose(
-        classes, 2, kernel_initializer='glorot_uniform', activation='relu')(x)
+    conv6 = Conv2D(filters=128, name='conv6', **kwargs)(mvn5)
+    mvn6 = Lambda(mvn, name='mvn6')(conv6)
 
-    x = Conv2D(
-        classes, (1, 1), activation='relu', padding='same',
-        kernel_regularizer=l2(weight_decay))(x)
-    x = Conv2DTranspose(
-        classes, 2, kernel_initializer='glorot_uniform', activation='relu')(x)
+    conv7 = Conv2D(filters=128, name='conv7', **kwargs)(mvn6)
+    mvn7 = Lambda(mvn, name='mvn7')(conv7)
+    pool2 = MaxPooling2D(
+        pool_size=3, strides=2,
+        padding='valid', name='pool2')(mvn7)
 
-    x = Conv2D(
-        classes, (1, 1), activation='relu', padding='same',
-        kernel_regularizer=l2(weight_decay))(x)
-    x = Conv2DTranspose(
-        classes, 2, kernel_initializer='glorot_uniform', activation='relu')(x)
-    # classifying layer
+    conv8 = Conv2D(filters=256, name='conv8', **kwargs)(pool2)
+    mvn8 = Lambda(mvn, name='mvn8')(conv8)
 
-    model = Model(img_input, x)
+    conv9 = Conv2D(filters=256, name='conv9', **kwargs)(mvn8)
+    mvn9 = Lambda(mvn, name='mvn9')(conv9)
+
+    conv10 = Conv2D(filters=256, name='conv10', **kwargs)(mvn9)
+    mvn10 = Lambda(mvn, name='mvn10')(conv10)
+
+    conv11 = Conv2D(filters=256, name='conv11', **kwargs)(mvn10)
+    mvn11 = Lambda(mvn, name='mvn11')(conv11)
+    pool3 = MaxPooling2D(
+        pool_size=3, strides=2,
+        padding='valid', name='pool3')(mvn11)
+    drop1 = Dropout(rate=0.5, name='drop1')(pool3)
+
+    conv12 = Conv2D(filters=512, name='conv12', **kwargs)(drop1)
+    mvn12 = Lambda(mvn, name='mvn12')(conv12)
+
+    conv13 = Conv2D(filters=512, name='conv13', **kwargs)(mvn12)
+    mvn13 = Lambda(mvn, name='mvn13')(conv13)
+
+    conv14 = Conv2D(filters=512, name='conv14', **kwargs)(mvn13)
+    mvn14 = Lambda(mvn, name='mvn14')(conv14)
+
+    conv15 = Conv2D(filters=512, name='conv15', **kwargs)(mvn14)
+    mvn15 = Lambda(mvn, name='mvn15')(conv15)
+    drop2 = Dropout(rate=0.5, name='drop2')(mvn15)
+
+    score_conv15 = Conv2D(
+        filters=num_classes, kernel_size=1,
+        strides=1, activation=None, padding='valid',
+        kernel_initializer='glorot_uniform', use_bias=True,
+        name='score_conv15')(drop2)
+    upsample1 = Conv2DTranspose(
+        filters=num_classes, kernel_size=3,
+        strides=2, activation=None, padding='valid',
+        kernel_initializer='glorot_uniform', use_bias=False,
+        name='upsample1')(score_conv15)
+    score_conv11 = Conv2D(
+        filters=num_classes, kernel_size=1,
+        strides=1, activation=None, padding='valid',
+        kernel_initializer='glorot_uniform', use_bias=True,
+        name='score_conv11')(mvn11)
+    crop1 = Lambda(crop, name='crop1')([upsample1, score_conv11])
+    fuse_scores1 = average([crop1, upsample1], name='fuse_scores1')
+
+    upsample2 = Conv2DTranspose(
+        filters=num_classes, kernel_size=3,
+        strides=2, activation=None, padding='valid',
+        kernel_initializer='glorot_uniform', use_bias=False,
+        name='upsample2')(fuse_scores1)
+    score_conv7 = Conv2D(
+        filters=num_classes, kernel_size=1,
+        strides=1, activation=None, padding='valid',
+        kernel_initializer='glorot_uniform', use_bias=True,
+        name='score_conv7')(mvn7)
+    crop2 = Lambda(crop, name='crop2')([upsample2, score_conv7])
+    fuse_scores2 = average([crop2, upsample2], name='fuse_scores2')
+
+    upsample3 = Conv2DTranspose(
+        filters=num_classes, kernel_size=3,
+        strides=2, activation=None, padding='valid',
+        kernel_initializer='glorot_uniform', use_bias=False,
+        name='upsample3')(fuse_scores2)
+    crop3 = Lambda(crop, name='crop3')([data, upsample3])
+    predictions = Conv2D(
+        filters=num_classes, kernel_size=1,
+        strides=1, activation=activation, padding='valid',
+        kernel_initializer='glorot_uniform', use_bias=True,
+        name='predictions')(crop3)
+
+    model = Model(inputs=data, outputs=predictions)
+
+    sgd = optimizers.SGD(lr=0.01, momentum=0.9, nesterov=True)
+    model.compile(optimizer=sgd, loss=loss,
+                  metrics=['accuracy', dice_coef, jaccard_coef])
 
     return model
