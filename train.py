@@ -6,6 +6,7 @@ import fnmatch
 import os
 import random
 
+from keras.callbacks import ModelCheckpoint
 from keras.metrics import binary_accuracy
 from keras.optimizers import SGD
 from keras.preprocessing.image import img_to_array, load_img, Iterator
@@ -13,6 +14,8 @@ import numpy as np
 
 from res_model import get_model
 from utils import binary_crossentropy_with_logits
+
+input_shape = (160, 240)
 
 
 class SegDirectoryIterator(Iterator):
@@ -32,8 +35,8 @@ class SegDirectoryIterator(Iterator):
             else:
                 self.validation_images.append(file)
 
-        self.validation_data = np.zeros((len(self.validation_images), ) + (160, 240, 3))
-        self.validation_mask_data = np.zeros((len(self.validation_images), ) + (160, 240, 1))
+        self.validation_data = np.zeros((len(self.validation_images), ) + input_shape + (3, ))
+        self.validation_mask_data = np.zeros((len(self.validation_images), ) + input_shape + (1, ))
 
         count = 0
         for data_file in self.validation_images:
@@ -41,8 +44,8 @@ class SegDirectoryIterator(Iterator):
             img_y = load_img(os.path.join(
                 self.mask_path, data_file.replace(".jpg", "_mask.gif")))
 
-            img_x = img_x.resize((240, 160))
-            img_y = img_y.resize((240, 160))
+            img_x = img_x.resize((input_shape[1], input_shape[0]))
+            img_y = img_y.resize((input_shape[1], input_shape[0]))
 
             x = img_to_array(img_x)
             y = img_to_array(img_y)
@@ -50,6 +53,7 @@ class SegDirectoryIterator(Iterator):
 
             x = x / 255.
             y = y / 255.
+            y = np.rint(y)
             self.validation_data[count] = x
             self.validation_mask_data[count] = y
             count += 1
@@ -66,8 +70,8 @@ class SegDirectoryIterator(Iterator):
 
         # The transformation of images is not under thread lock so it can be
         # done in parallel
-        batch_x = np.zeros((current_batch_size, ) + (160, 240, 3))
-        batch_y = np.zeros((current_batch_size, ) + (160, 240, 1))
+        batch_x = np.zeros((current_batch_size, ) + input_shape + (3, ))
+        batch_y = np.zeros((current_batch_size, ) + input_shape + (1, ))
 
         for i, j in enumerate(index_array):
             if self.train_data[j] is not None:
@@ -79,8 +83,8 @@ class SegDirectoryIterator(Iterator):
             img_y = load_img(os.path.join(
                 self.mask_path, data_file.replace(".jpg", "_mask.gif")))
 
-            img_x = img_x.resize((240, 160))
-            img_y = img_y.resize((240, 160))
+            img_x = img_x.resize((input_shape[1], input_shape[0]))
+            img_y = img_y.resize((input_shape[1], input_shape[0]))
 
             x = img_to_array(img_x)
             y = img_to_array(img_y)
@@ -88,6 +92,7 @@ class SegDirectoryIterator(Iterator):
 
             x = x / 255.
             y = y / 255.
+            y = np.rint(y)
 
             self.train_data[j] = x
             self.mask_data[j] = y
@@ -98,14 +103,14 @@ class SegDirectoryIterator(Iterator):
         return (batch_x, batch_y)
 
 
-model = get_model((160, 240, 3))
-model.compile(
-    loss=binary_crossentropy_with_logits,
-    optimizer=SGD(lr=0.01 / 16, momentum=0.9),
-    metrics=[binary_accuracy]
-)
+filepath="weights-improvement-{epoch:02d}-{val_acc:.2f}.hdf5"
+checkpoint = ModelCheckpoint(filepath, monitor='val_acc', verbose=1, save_best_only=True, mode='max')
+callbacks_list = [checkpoint]
+
+
+model = get_model(input_shape + (3, ))
 
 # model.fit_generator(SegDirectoryIterator(), steps_per_epoch=1000, epochs=10)
 sdi = SegDirectoryIterator()
-model.fit_generator(sdi, steps_per_epoch=10, epochs=200, validation_data=[sdi.validation_data, sdi.validation_mask_data])
+model.fit_generator(sdi, steps_per_epoch=10, epochs=200, validation_data=[sdi.validation_data, sdi.validation_mask_data], callbacks=callbacks_list)
 # model.fit(sdi.self.train_images_data, sdi.self.mask_images_data, batch_size=100, epochs=100)

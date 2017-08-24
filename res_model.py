@@ -32,8 +32,8 @@ def crop(tensors):
     crop_h, crop_w = (h_dims[1] - h_dims[0]), (w_dims[1] - w_dims[0])
     rem_h = crop_h % 2
     rem_w = crop_w % 2
-    crop_h_dims = (crop_h / 2, crop_h / 2 + rem_h)
-    crop_w_dims = (crop_w / 2, crop_w / 2 + rem_w)
+    crop_h_dims = (crop_h // 2, crop_h // 2 + rem_h)
+    crop_w_dims = (crop_w // 2, crop_w // 2 + rem_w)
     cropped = Cropping2D(cropping=(crop_h_dims, crop_w_dims))(tensors[1])
 
     return cropped
@@ -66,8 +66,7 @@ def get_model(
     weight_decay=1e-4
 ):
 
-    if num_classes == 2:
-        num_classes = 1
+    if num_classes == 1:
         loss = dice_coef_loss
         activation = 'sigmoid'
     else:
@@ -194,7 +193,7 @@ def get_model(
 
     model = Model(inputs=data, outputs=predictions)
 
-    sgd = optimizers.SGD(lr=0.01, momentum=0.9, nesterov=True)
+    sgd = optimizers.SGD(lr=0.05, momentum=0.9, nesterov=True)
     model.compile(optimizer=sgd, loss=loss,
                   metrics=['accuracy', dice_coef, jaccard_coef])
 
