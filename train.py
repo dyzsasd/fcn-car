@@ -15,14 +15,14 @@ from utils import binary_crossentropy_with_logits
 
 
 class SegDirectoryIterator(Iterator):
-    train_path = '/data'
-    mask_path = '/data'
+    train_path = '/home/szhang/data/car_section/train/'
+    mask_path = '/home/szhang/data/car_section/train_masks/'
 
     def __init__(self):
         self.train_images = fnmatch.filter(
             os.listdir(self.train_path), '*.jpg')
         super(SegDirectoryIterator, self).__init__(
-            len(self.train_images), 1, True, None)
+            len(self.train_images), 10, True, None)
 
     def next(self):
         with self.lock:
@@ -50,7 +50,7 @@ class SegDirectoryIterator(Iterator):
             batch_x[i] = x
             batch_y[i] = y
 
-        return batch_x
+        return batch_x, batch_y
 
 
 model = get_model((1280, 1918, 3))
@@ -60,4 +60,8 @@ model.compile(
     metrics=[binary_accuracy]
 )
 
-model.fit_generator(SegDirectoryIterator(), steps_per_epoch=1000, epochs=1)
+model.fit_generator(
+    SegDirectoryIterator(),
+    steps_per_epoch=300,
+    epochs=10
+)
